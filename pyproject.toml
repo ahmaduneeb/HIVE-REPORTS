@@ -1,0 +1,24 @@
+[project]
+name = "hive-reports"
+version = "0.1.0"
+description = "Receipt and report generator. CLI + REST + file-watch."
+requires-python = ">=3.10"
+dependencies = [
+    "reportlab>=4.0",
+    "Pillow>=10.0",
+    "watchfiles>=0.21",
+    "flask>=3.0",
+]
+
+[project.optional-dependencies]
+png = ["pypdfium2>=4.0"]
+
+[project.scripts]
+receipt-gen = "hive_reports.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

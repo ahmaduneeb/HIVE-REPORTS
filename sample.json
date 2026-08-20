@@ -1,0 +1,10 @@
+{
+  "items": [
+    {"name": "Espresso", "qty": 1, "price": "3.00", "tax_rate": "0.10"},
+    {"name": "Croissant", "qty": 2, "price": "2.50", "tax_rate": "0.10"}
+  ],
+  "discount": "0.50",
+  "currency": "USD",
+  "notes": "Window seat.",
+  "template": {"company": "Cafe Demo", "address": "42 Bean St"}
+}
