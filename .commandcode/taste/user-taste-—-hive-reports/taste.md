@@ -1,0 +1,17 @@
+# User Taste — HIVE-REPORTS
+- Prefers direct, concise explanations when debugging; doesn't want verbose preamble. Confidence: 0.85
+- Uses Windows + thermal receipt printer (COM port / Windows device path). Project root is `D:\my-projects\HIVE-REPORTS`. Confidence: 0.9
+- Prefers running real hardware tests (e.g. `receipt-gen print` to COM3) rather than only unit/integration tests. Confidence: 0.8
+- Prefers removing unused/abstraction code paths to keep software focused ("cut this off to make the software more efficient"). When a feature branch (e.g. network/IP printing) isn't needed for the user's actual hardware, strip it out rather than leave dead/dual paths. Confidence: 0.85
+- Prefers adding separate CLI flags for orthogonal concerns rather than overloading one flag — e.g. split `--port` (TCP) and `--baud` (serial) instead of reusing `--port` for both. Confidence: 0.8
+- Default baud rate of 9600 is acceptable for their thermal printer on COM3. Confidence: 0.7
+- Communicates in a blunt, informal tone (frequent profanity, no pleasantries). Match with concise, action-first responses — skip lengthy apologies, explanations of background, or hedging. Just do the work and report results. Confidence: 0.9
+- Prefers the assistant to explain *why* a wrong assumption was made (e.g. "I thought you had a network printer because…") so they can correct course quickly. Confidence: 0.7
+- CLI is invoked as `receipt-gen` (installed console script from pyproject). Confidence: 0.85
+- Demo/sample data lives in `sample.json` at project root; `receipt-gen demo` regenerates it. Confidence: 0.7
+- Reinstalls the package with `pip install -e .` after edits before retesting. Confidence: 0.7
+- Machine has multiple Python installs: default `python` on PATH is msys64 Python 3.12, while `pip` targets Python 3.11 at `C:\Users\USER\AppData\Local\Programs\Python\Python311\python.exe` (where the package and console scripts actually live). Use `python -m pip` or the explicit 3.11 interpreter path to avoid ModuleNotFoundError. Confidence: 0.85
+- Their thermal printer is a "Black Copper BC-85AC" installed as a Windows driver-backed printer on port USB003 (raw device paths like `\\.\USB002` / `\\.\USB003` do NOT work). Prefer the Windows winspool RAW path (`win32print`, `pDatatype='RAW'`) using the printer name over raw COM/device writes. Confidence: 0.8
+- Wants new capabilities surfaced consistently across all entry points — when adding a print path, wire it into both the CLI (`--printer-name`) and the REST API payload (`printer_name`). Confidence: 0.75
+- Reports failures tersely ("the printer didnt print") and expects the assistant to self-diagnose end-to-end (verify byte stream, check ports/drivers, try alternate transports) without asking clarifying questions. Confidence: 0.8
+- Debug long Python snippets with unbuffered/flushed output (`python -u`, `print(..., flush=True)`) so hangs are localized instead of producing no output. Confidence: 0.7

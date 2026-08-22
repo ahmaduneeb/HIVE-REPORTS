@@ -2,6 +2,12 @@ reportlab>=4.0
 Pillow>=10.0
 watchfiles>=0.21
 flask>=3.0
+pyserial>=3.5
 
 [png]
 pypdfium2>=4.0
+
+[windows_printer]
+
+[windows_printer:sys_platform == "win32"]
+pywin32>=300

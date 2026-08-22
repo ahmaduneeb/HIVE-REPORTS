@@ -7,6 +7,7 @@ src/hive_reports/cli.py
 src/hive_reports/parse.py
 src/hive_reports/pdf_render.py
 src/hive_reports/store.py
+src/hive_reports/thermal.py
 src/hive_reports/watch.py
 src/hive_reports.egg-info/PKG-INFO
 src/hive_reports.egg-info/SOURCES.txt

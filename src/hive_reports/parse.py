@@ -8,9 +8,10 @@ from pathlib import Path
 
 from .calc import D, LineItem, Transaction
 from .pdf_render import render_pdf, render_png
+from .thermal import render_thermal, print_to_printer
 
 
-SUPPORTED_FORMATS = {"pdf", "json", "png"}
+SUPPORTED_FORMATS = {"pdf", "json", "png", "thermal"}
 
 
 def new_receipt_id() -> str:
@@ -87,6 +88,8 @@ def render(
         return render_pdf(tx, out_path, template, rid)
     if fmt == "png":
         return render_png(tx, out_path, template, rid)
+    if fmt == "thermal":
+        return render_thermal(tx, out_path, template, rid)
     if fmt == "json":
         out = Path(out_path); out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps({

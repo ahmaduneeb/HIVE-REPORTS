@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     payload TEXT NOT NULL,
     template TEXT NOT NULL,
     output_path TEXT,
-    total TEXT
+    total TEXT,
+    format TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tx_created ON transactions(created_at);
 CREATE TABLE IF NOT EXISTS templates (
@@ -29,12 +30,22 @@ CREATE TABLE IF NOT EXISTS audit (
 """
 
 
+def _ensure_schema(cx: sqlite3.Connection) -> None:
+    """Create tables if missing, then migrate older schemas forward."""
+    cx.executescript(SCHEMA)
+
+    # Migration: add `format` column if upgrading from a pre-format hive.db
+    cols = {row[1] for row in cx.execute("PRAGMA table_info(transactions)")}
+    if "format" not in cols:
+        cx.execute("ALTER TABLE transactions ADD COLUMN format TEXT")
+
+
 class Store:
     def __init__(self, path: str | Path = "hive.db"):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as cx:
-            cx.executescript(SCHEMA)
+            _ensure_schema(cx)
             cx.execute("PRAGMA journal_mode=WAL;")
 
     def _connect(self) -> sqlite3.Connection:
@@ -50,17 +61,23 @@ class Store:
             )
 
     def save_transaction(
-        self, payload: dict, template: str, output_path: str | None, total: str | None
+        self,
+        payload: dict,
+        template: str,
+        output_path: str | None,
+        total: str | None,
+        fmt: str | None = None,
     ) -> int:
         with self._connect() as cx:
             cur = cx.execute(
-                "INSERT INTO transactions(created_at, payload, template, output_path, total) VALUES (?,?,?,?,?)",
+                "INSERT INTO transactions(created_at, payload, template, output_path, total, format) VALUES (?,?,?,?,?,?)",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     json.dumps(payload, default=str),
                     template,
                     output_path,
                     total,
+                    fmt,
                 ),
             )
             return cur.lastrowid

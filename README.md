@@ -16,7 +16,7 @@ pip install -e ".[png]"
 # Self-check (renders one PDF, verifies totals)
 receipt-gen demo
 
-# Render one receipt from JSON
+# Render one receipt from JSON to PDF
 receipt-gen generate -i sample.json -o receipt.pdf
 
 # Batch from CSV (rows sharing `group_id` collapse into one transaction)
@@ -29,7 +29,44 @@ receipt-gen serve
 receipt-gen watch
 ```
 
+## Thermal receipt printing
+
+Generate ESC/POS byte streams for 80mm thermal printers.
+
+```bash
+# Write raw ESC/POS bytes to a file (then feed to a printer driver)
+receipt-gen generate -i sample.json -o receipt.txt -f thermal
+
+# Send directly to a network printer on port 9100 (raw/print-data mode)
+receipt-gen print -i sample.json --host 192.168.1.100 --port 9100
+
+# Watch folder and emit thermal bytes instead of PDFs
+receipt-gen watch -f thermal
+```
+
+Printer connection via REST:
+
+```bash
+curl -X POST http://127.0.0.1:8765/api/generate-receipt \
+  -H "Content-Type: application/json" \
+  -d '{\"items\":[{\"name\":\"Coffee\",\"qty\":2,\"price\":\"3.50\",\"tax_rate\":\"0.10\"}],
+       \"currency\":\"USD\",\"format\":\"thermal\"}'
+
+# Direct-to-printer streaming (no file saved):
+curl -X POST http://127.0.0.1:8765/api/generate-receipt \
+  -H "Content-Type: application/json" \
+  -d '{\"items\":[{\"name\":\"Coffee\",\"qty\":2,\"price\":\"3.50\",\"tax_rate\":\"0.10\"}],
+       \"currency\":\"USD\",\"print_to\":\"192.168.1.100:9100\"}'
+```
+
+`print_to` format is `"host:port"` (port defaults to 9100). The receipt data is built
+and validated via the same pipeline as PDFs; only the output differs.
+
 ## Input shape
+
+In addition to `pdf`, `png`, and `json`, the REST API also accepts `format: "thermal"`.
+Set `print_to` instead to stream ESC/POS bytes directly to a network printer and skip
+the file entirely.
 
 ```json
 {
@@ -49,7 +86,8 @@ CSV columns: `name, qty, price, tax_rate, currency, discount, notes, group_id`.
 ## REST
 
 ```
-POST /api/generate-receipt  body = the input JSON above + "format": "pdf|json|png"
+POST /api/generate-receipt  body = the input JSON above + "format": "pdf|json|png|thermal"
+                              add "print_to": "host:port" to stream ESC/POS bytes directly
 GET  /api/transactions?limit=50
 GET  /health
 ```
@@ -57,6 +95,7 @@ GET  /health
 ## Storage
 
 SQLite at `./hive.db` (override with `--db`). Tables: `transactions`, `templates`, `audit`.
+Each transaction row records `format` (`pdf`, `json`, `png`, or `thermal`) so you can filter what was printed vs. saved to disk.
 
 ## What this is NOT (yet)
 

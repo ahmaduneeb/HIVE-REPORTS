@@ -1,17 +1,20 @@
 [project]
 name = "hive-reports"
 version = "0.1.0"
-description = "Receipt and report generator. CLI + REST + file-watch."
+description = "Receipt and report generator. CLI + REST + file-watch. PDF, PNG, JSON, and ESC/POS thermal output."
 requires-python = ">=3.10"
 dependencies = [
     "reportlab>=4.0",
     "Pillow>=10.0",
     "watchfiles>=0.21",
     "flask>=3.0",
+    "pyserial>=3.5",
 ]
 
 [project.optional-dependencies]
 png = ["pypdfium2>=4.0"]
+# Windows-only: send raw ESC/POS via the winspool printer driver API
+windows_printer = ["pywin32>=300 ; sys_platform == 'win32'"]
 
 [project.scripts]
 receipt-gen = "hive_reports.cli:main"

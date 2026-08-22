@@ -14,13 +14,14 @@ def watch_folder(
     output_dir: str = "out",
     archive_dir: str = "processed",
     db_path: str = "hive.db",
+    fmt: str = "pdf",
 ) -> None:
     inp = Path(input_dir); inp.mkdir(exist_ok=True)
     out = Path(output_dir); out.mkdir(exist_ok=True)
     archive = Path(archive_dir); archive.mkdir(exist_ok=True)
     store = Store(db_path)
 
-    print(f"hive-reports: watching {inp.resolve()} -> {out.resolve()}")
+    print(f"hive-reports: watching {inp.resolve()} -> {out.resolve()} (format={fmt})")
     for changes in watch(inp):
         for _change_type, path_str in changes:
             path = Path(path_str)
@@ -29,21 +30,25 @@ def watch_folder(
             try:
                 if path.suffix.lower() == ".json":
                     tx = from_json(path.read_text())
-                    rid = render(tx, "pdf", out / f"{path.stem}.pdf")
+                    ext = "txt" if fmt == "thermal" else fmt
+                    rid = render(tx, fmt, out / f"{path.stem}.{ext}")
                     store.save_transaction(
                         payload=tx.to_dict(),
                         template="default",
                         output_path=str(rid),
                         total=str(tx.total()),
+                        fmt=fmt,
                     )
                 elif path.suffix.lower() == ".csv":
                     for idx, tx in enumerate(from_csv(path), start=1):
-                        rid = render(tx, "pdf", out / f"{path.stem}-{idx}.pdf")
+                        ext = "txt" if fmt == "thermal" else fmt
+                        rid = render(tx, fmt, out / f"{path.stem}-{idx}.{ext}")
                         store.save_transaction(
                             payload=tx.to_dict(),
                             template="default",
                             output_path=str(rid),
                             total=str(tx.total()),
+                            fmt=fmt,
                         )
                 else:
                     continue
