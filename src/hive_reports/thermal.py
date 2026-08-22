@@ -36,6 +36,10 @@ BOLD_OFF = ESC + b"!" + b"\x00"
 LINE_HEIGHT = ESC + b"3" + b"\x28"  # 38 dots
 DEFAULT_LINE_HEIGHT = ESC + b"2"
 
+# 80mm thermal printers wrap at ~40-42 chars; keep one constant for both
+# truncation checks AND padding so they never disagree.
+LINE_WIDTH = 40
+
 PathLike = Union[str, Path]
 
 
@@ -65,23 +69,25 @@ def build_receipt(tx: Transaction, receipt_id: str = "", template: dict | None =
     # Items
     for it in tx.items:
         unit = money(it.line_total() / it.qty) if it.qty else money(it.qty)
-        # Name + qty on left, price on right, via spaces to fill line width
-        # 48-char wide thermal line
+        # Name + qty on left, price on right, via spaces to fill line width.
         left = f"{it.name} ({it.qty})"
         right = f"{unit} x {it.qty}"
-        # Truncate name if line would overflow
-        if len(left) + len(right) > 38:
-            left = left[: 38 - len(right)]
-        gap = 40 - len(left) - len(right)
+        # Truncate ``left`` if it would overflow LINE_WIDTH. Clamp the slice
+        # length at 0 so a pathologically long ``right`` can't make it go
+        # negative (which would slice from the END of the string via Python's
+        # negative-index wraparound).
+        if len(left) + len(right) > LINE_WIDTH:
+            left = left[: max(LINE_WIDTH - len(right), 0)]
+        gap = LINE_WIDTH - len(left) - len(right)
         if gap < 1:
             gap = 1
         lines.append(f"{left}{' ' * gap}{right}\n".encode("utf-8"))
 
-    lines.append(b"-" * 40 + b"\n")
+    lines.append(b"-" * LINE_WIDTH + b"\n")
 
     # Summary
     def _row(label: str, value: str) -> bytes:
-        gap = 40 - len(label) - len(value)
+        gap = LINE_WIDTH - len(label) - len(value)
         if gap < 1:
             gap = 1
         return f"{label}{' ' * gap}{value}\n".encode("utf-8")

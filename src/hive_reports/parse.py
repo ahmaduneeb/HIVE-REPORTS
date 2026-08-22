@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .calc import D, LineItem, Transaction
 from .pdf_render import render_pdf, render_png
+from .templates import resolve_template
 from .thermal import render_thermal, print_to_printer
 
 
@@ -19,15 +20,30 @@ def new_receipt_id() -> str:
 
 
 def _build_tx(payload: dict) -> Transaction:
-    items = [
-        LineItem(
-            name=i["name"],
-            qty=D(i.get("qty", 1)),
-            price=D(i["price"]),
-            tax_rate=D(i.get("tax_rate", "0")),
-        )
-        for i in payload["items"]
-    ]
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be a JSON object")
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, list) or not raw_items:
+        raise ValueError("payload.items must be a non-empty list")
+
+    items: list[LineItem] = []
+    for idx, i in enumerate(raw_items):
+        if not isinstance(i, dict):
+            raise ValueError(f"items[{idx}] must be an object")
+        if "name" not in i:
+            raise ValueError(f"items[{idx}].name is required")
+        if "price" not in i:
+            raise ValueError(f"items[{idx}].price is required")
+        try:
+            items.append(LineItem(
+                name=i["name"],
+                qty=D(i.get("qty", 1)),
+                price=D(i["price"]),
+                tax_rate=D(i.get("tax_rate", "0")),
+            ))
+        except Exception as e:
+            raise ValueError(f"items[{idx}] has invalid numeric field: {e}") from e
+
     return Transaction(
         items=items,
         discount=D(payload.get("discount", "0")),
@@ -76,26 +92,37 @@ def render(
     tx: Transaction,
     fmt: str,
     out_path: str | Path,
-    template: dict | None = None,
+    template: dict | str | None = None,
     receipt_id: str | None = None,
+    store=None,
 ) -> Path:
+    """Render ``tx`` to ``out_path`` in ``fmt`` (``pdf``, ``png``, ``thermal``, ``json``).
+
+    ``template`` may be:
+      * a dict (passed through unchanged), or
+      * a registered or DB-saved template name (resolved via ``resolve_template``),
+        or
+      * ``None`` (caller's default).
+    Pass ``store`` to allow resolving template names from the DB.
+    """
     fmt = fmt.lower()
     if fmt not in SUPPORTED_FORMATS:
         raise ValueError(f"format {fmt!r} not supported; pick from {SUPPORTED_FORMATS}")
     rid = receipt_id or new_receipt_id()
+    resolved = resolve_template(template, store=store)
 
     if fmt == "pdf":
-        return render_pdf(tx, out_path, template, rid)
+        return render_pdf(tx, out_path, resolved, rid)
     if fmt == "png":
-        return render_png(tx, out_path, template, rid)
+        return render_png(tx, out_path, resolved, rid)
     if fmt == "thermal":
-        return render_thermal(tx, out_path, template, rid)
+        return render_thermal(tx, out_path, resolved, rid)
     if fmt == "json":
         out = Path(out_path); out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps({
             "receipt_id": rid,
             "summary": tx.to_dict(),
-            "template": template or {},
+            "template": resolved or {},
         }, indent=2))
         return out
     raise AssertionError("unreachable")

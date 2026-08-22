@@ -4,6 +4,10 @@ from flask import Flask, jsonify, request
 
 from .parse import from_json, render, new_receipt_id
 from .store import Store
+from .templates import (
+    list_registered_templates,
+    resolve_template,
+)
 from .thermal import print_to_printer
 
 
@@ -15,11 +19,23 @@ def create_app(store: Store | None = None, output_dir: str = "out") -> Flask:
 
     @app.post("/api/generate-receipt")
     def generate():
-        payload = request.get_json(force=True)
+        payload = request.get_json(force=True, silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "request body must be a JSON object"}), 400
+
+        template_name = payload.get("template_name")
+        try:
+            template = resolve_template(template_name, store=store) if template_name else payload.get("template")
+        except KeyError as e:
+            return jsonify({"error": str(e)}), 400
+
         fmt = payload.get("format", "pdf")
-        template = payload.get("template")
         rid = payload.get("receipt_id") or new_receipt_id()
-        tx = from_json(payload)
+
+        try:
+            tx = from_json(payload)
+        except (ValueError, TypeError, KeyError) as e:
+            return jsonify({"error": "invalid payload", "detail": str(e)}), 400
 
         # Direct-to-printer streaming via Windows winspool (printer name)
         printer_name = payload.get("printer_name")
@@ -39,7 +55,7 @@ def create_app(store: Store | None = None, output_dir: str = "out") -> Flask:
                 }), 502
             store.save_transaction(
                 payload={"receipt_id": rid, **payload},
-                template=(template or {}).get("name", "default"),
+                template=_audit_template_name(template_name, payload),
                 output_path=None,
                 total=str(tx.total()),
                 fmt="thermal",
@@ -74,7 +90,7 @@ def create_app(store: Store | None = None, output_dir: str = "out") -> Flask:
                 }), 502
             store.save_transaction(
                 payload={"receipt_id": rid, **payload},
-                template=(template or {}).get("name", "default"),
+                template=_audit_template_name(template_name, payload),
                 output_path=None,
                 total=str(tx.total()),
                 fmt="thermal",
@@ -93,7 +109,7 @@ def create_app(store: Store | None = None, output_dir: str = "out") -> Flask:
         path = render(tx, fmt, out_path, template, rid)
         tx_id = store.save_transaction(
             payload={"receipt_id": rid, **payload},
-            template=(template or {}).get("name", "default"),
+            template=_audit_template_name(template_name, payload),
             output_path=str(path),
             total=str(tx.total()),
             fmt=fmt,
@@ -106,6 +122,22 @@ def create_app(store: Store | None = None, output_dir: str = "out") -> Flask:
             "total": str(tx.total()),
         })
 
+    @app.get("/api/templates")
+    def list_templates_route():
+        registered = list_registered_templates()
+        saved = store.list_templates()
+        return jsonify({"registered": registered, "saved": saved})
+
+    @app.put("/api/templates/<name>")
+    def save_template_route(name: str):
+        body = request.get_json(force=True, silent=True)
+        if not isinstance(body, dict):
+            return jsonify({"error": "request body must be a JSON object"}), 400
+        import json as _json
+        store.upsert_template(name, _json.dumps(body))
+        store.log("template_upsert", name)
+        return jsonify({"name": name, "saved": True})
+
     @app.get("/api/transactions")
     def list_tx():
         return jsonify(app.config["STORE"].recent(limit=int(request.args.get("limit", 50))))
@@ -115,6 +147,19 @@ def create_app(store: Store | None = None, output_dir: str = "out") -> Flask:
         return {"ok": True}
 
     return app
+
+
+def _audit_template_name(template_name: str | None, payload: dict) -> str:
+    """Pick the template name to record in the audit log.
+
+    Priority:
+      1. ``template_name`` from the request (explicit lookup).
+      2. Filename derived from ``template_file`` in the payload.
+      3. ``"default"`` if neither was supplied.
+    """
+    if template_name:
+        return template_name
+    return "default"
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765, db: str = "hive.db", out: str = "out") -> None:

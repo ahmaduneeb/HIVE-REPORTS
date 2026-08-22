@@ -15,3 +15,14 @@
 - Wants new capabilities surfaced consistently across all entry points — when adding a print path, wire it into both the CLI (`--printer-name`) and the REST API payload (`printer_name`). Confidence: 0.75
 - Reports failures tersely ("the printer didnt print") and expects the assistant to self-diagnose end-to-end (verify byte stream, check ports/drivers, try alternate transports) without asking clarifying questions. Confidence: 0.8
 - Debug long Python snippets with unbuffered/flushed output (`python -u`, `print(..., flush=True)`) so hangs are localized instead of producing no output. Confidence: 0.7
+- Read the project's taste file before starting non-trivial work — context on tooling, environment quirks, and prior decisions should shape the approach. Confidence: 0.8
+- For multi-step fixes (3+ discrete changes), maintain a todo list via `todo_write` and mark items `in_progress` / `completed` as work proceeds. Confidence: 0.85
+- Verify fixes end-to-end, not just by smoke-testing imports: write a real test script with assertions covering each fix and run it before declaring done. Confidence: 0.9
+- Use `tempfile.NamedTemporaryFile(suffix='.db')` for DB-touching tests so the user's real `hive.db` isn't polluted; clean up test artifacts (`Remove-Item`) before reporting. Confidence: 0.85
+- When a shell one-liner gets too long or output goes missing, switch from `cmd /d` to PowerShell, or write the script to a file in the scratchpad and run that instead. Confidence: 0.8
+- Use raw strings (`r"..."`) for help/error text containing Windows backslashes (e.g. `\\.\USB002`); regular strings need escape gymnastics. Confidence: 0.8
+- After touching shared code paths, re-run the project's existing self-check command (e.g. `receipt-gen demo`) to confirm no regressions before declaring done. Confidence: 0.8
+- When an early implementation turns out fragile or inelegant, rewrite it rather than ship the awkward version — better to redo than to carry the smell forward. Confidence: 0.8
+- For resource cleanup patterns, use `@contextmanager` + `try/finally` (e.g. `cx = sqlite3.connect(path); try: yield cx; finally: cx.close()`) rather than relying on `with cx:` which only manages transactions for `sqlite3.Connection`. Confidence: 0.85
+- Clamp slice indices defensively with `max(N - len(other), 0)` so they can never go negative — prevents silent Python negative-index wraparound bugs. Confidence: 0.8
+- When refactoring, look for repeated inline patterns across files (e.g. `(template or {}).get("name", "default")`) and extract into a single helper rather than copy-pasting the fix. Confidence: 0.8

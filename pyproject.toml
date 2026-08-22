@@ -18,6 +18,7 @@ windows_printer = ["pywin32>=300 ; sys_platform == 'win32'"]
 
 [project.scripts]
 receipt-gen = "hive_reports.cli:main"
+receipt-gui = "hive_reports.gui:main"
 
 [build-system]
 requires = ["setuptools>=68"]

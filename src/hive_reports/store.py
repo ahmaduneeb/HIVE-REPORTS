@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -44,17 +45,28 @@ class Store:
     def __init__(self, path: str | Path = "hive.db"):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as cx:
+        with self._cursor() as cx:
             _ensure_schema(cx)
             cx.execute("PRAGMA journal_mode=WAL;")
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _cursor(self):
+        """Open a connection, yield it, and ALWAYS close it on exit.
+
+        sqlite3.Connection's __enter__/__exit__ only manage transactions, so
+        without this wrapper every `with self._connect() as cx:` would leave
+        the underlying connection open until garbage collection.
+        """
         cx = sqlite3.connect(self.path)
         cx.row_factory = sqlite3.Row
-        return cx
+        try:
+            with cx:
+                yield cx
+        finally:
+            cx.close()
 
     def log(self, action: str, detail: str | None = None) -> None:
-        with self._connect() as cx:
+        with self._cursor() as cx:
             cx.execute(
                 "INSERT INTO audit(ts, action, detail) VALUES (?,?,?)",
                 (datetime.now(timezone.utc).isoformat(), action, detail),
@@ -68,7 +80,7 @@ class Store:
         total: str | None,
         fmt: str | None = None,
     ) -> int:
-        with self._connect() as cx:
+        with self._cursor() as cx:
             cur = cx.execute(
                 "INSERT INTO transactions(created_at, payload, template, output_path, total, format) VALUES (?,?,?,?,?,?)",
                 (
@@ -83,15 +95,33 @@ class Store:
             return cur.lastrowid
 
     def recent(self, limit: int = 50) -> list[dict]:
-        with self._connect() as cx:
+        with self._cursor() as cx:
             return [dict(r) for r in cx.execute(
                 "SELECT * FROM transactions ORDER BY id DESC LIMIT ?", (limit,)
             )]
 
     def upsert_template(self, name: str, body: str) -> None:
-        with self._connect() as cx:
+        with self._cursor() as cx:
             cx.execute(
                 "INSERT INTO templates(name, body, updated_at) VALUES (?,?,?) "
                 "ON CONFLICT(name) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at",
                 (name, body, datetime.now(timezone.utc).isoformat()),
             )
+
+    def get_template(self, name: str) -> dict | None:
+        """Return the template dict for ``name``, or ``None`` if not stored."""
+        with self._cursor() as cx:
+            row = cx.execute(
+                "SELECT body FROM templates WHERE name = ?", (name,)
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["body"])
+
+    def list_templates(self) -> list[str]:
+        """Return all saved template names, sorted alphabetically."""
+        with self._cursor() as cx:
+            rows = cx.execute(
+                "SELECT name FROM templates ORDER BY name"
+            ).fetchall()
+        return [r["name"] for r in rows]

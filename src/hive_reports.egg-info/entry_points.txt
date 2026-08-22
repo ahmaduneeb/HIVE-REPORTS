@@ -1,2 +1,3 @@
 [console_scripts]
 receipt-gen = hive_reports.cli:main
+receipt-gui = hive_reports.gui:main
