@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0"
-start " pythonw -m hive_reports.gui %*
+start "" C:\Users\USER\AppData\Local\Programs\Python\Python311\python.exe -m hive_reports.gui %*

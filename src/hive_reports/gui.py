@@ -490,11 +490,25 @@ class HiveReportsApp:
     # -- worker plumbing --------------------------------------------------
     def _run_in_thread(self, fn: Callable[[], int]) -> None:
         def _wrapper():
+            class QueueWriter:
+                def __init__(self, q: queue.Queue[str]):
+                    self.q = q
+                def write(self, s: str):
+                    if s:
+                        self.q.put(s)
+                def flush(self):
+                    pass
+
+            qw = QueueWriter(self._log_q)
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+            sys.stdout, sys.stderr = qw, qw
             try:
                 rc = fn()
-                self._log_q.put(f"[gui] done (rc={rc})\n")
+                self._log_q.put(f"\n[gui] done (rc={rc})\n")
             except Exception as e:
-                self._log_q.put(f"[gui] ERROR: {e}\n")
+                self._log_q.put(f"\n[gui] ERROR: {e}\n")
+            finally:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
 
         t = threading.Thread(target=_wrapper, daemon=True)
         t.start()

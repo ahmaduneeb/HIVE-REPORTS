@@ -31,83 +31,166 @@ FEED = ESC + b"d"  # feed n lines (ESC d n)
 CUT = GS + b"V" + b"\x00"  # full cut
 ALIGN_LEFT = ESC + b"a" + b"\x00"
 ALIGN_CENTER = ESC + b"a" + b"\x01"
-BOLD_ON = ESC + b"!" + b"\x10"
-BOLD_OFF = ESC + b"!" + b"\x00"
+ALIGN_RIGHT = ESC + b"a" + b"\x02"
+BOLD_ON = ESC + b"E" + b"\x01"
+BOLD_OFF = ESC + b"E" + b"\x00"
+INVERT_ON = GS + b"B" + b"\x01"
+INVERT_OFF = GS + b"B" + b"\x00"
+DOUBLE_HEIGHT_ON = ESC + b"!" + b"\x10"
+DOUBLE_WIDTH_ON = ESC + b"!" + b"\x20"
+DOUBLE_SIZE_ON = ESC + b"!" + b"\x30"
+NORMAL_SIZE = ESC + b"!" + b"\x00"
 LINE_HEIGHT = ESC + b"3" + b"\x28"  # 38 dots
 DEFAULT_LINE_HEIGHT = ESC + b"2"
 
-# 80mm thermal printers wrap at ~40-42 chars; keep one constant for both
-# truncation checks AND padding so they never disagree.
-LINE_WIDTH = 40
+# 80mm thermal printers wrap at ~42 chars; 58mm at ~32 chars
+LINE_WIDTH = 42
 
 PathLike = Union[str, Path]
 
 
-def build_receipt(tx: Transaction, receipt_id: str = "", template: dict | None = None) -> bytes:
-    """Build an ESC/POS byte stream for ``tx``.
+def qr_code_bytes(data: str) -> bytes:
+    """Generate native ESC/POS QR code command bytes for 80mm/58mm thermal printers."""
+    content = data.encode("utf-8")
+    length = len(content) + 3
+    pL = length % 256
+    pH = length // 256
 
-    Returns bytes ready to send to a thermal printer (port 9100 / raw mode).
+    commands = [
+        ALIGN_CENTER,
+        # Set QR model (Model 2)
+        GS + b"(k" + b"\x04\x00\x31\x41\x32\x00",
+        # Set QR size (Module size 6)
+        GS + b"(k" + b"\x03\x00\x31\x43\x06",
+        # Set Error Correction Level (Level M = 48)
+        GS + b"(k" + b"\x03\x00\x31\x45\x30",
+        # Store QR data
+        GS + b"(k" + bytes([pL, pH]) + b"\x31\x50\x30" + content,
+        # Print QR code symbol
+        GS + b"(k" + b"\x03\x00\x31\x51\x30",
+        b"\n",
+    ]
+    return b"".join(commands)
+
+
+def build_receipt(
+    tx: Transaction,
+    receipt_id: str = "",
+    template: dict | None = None,
+) -> bytes:
+    """Build an ESC/POS byte stream styled like advanced POS invoices.
+
+    Includes support for:
+      - Large centered headers & sub-headers
+      - Table layout with Item Name, Qty, Price, Tax/GST %, and Amount columns
+      - Inverted / highlight banners (e.g. CASH SALE INVOICE / NET PAYABLE)
+      - Standard QR code generation for POS/FBR verification
     """
     t = template or {}
-    company = t.get("company", "Hive Reports Inc.")
-    address = t.get("address", "")
+    company = t.get("company", "MAKKI OIL STORE")
+    address = t.get("address", "872-D, Faisal Town Near Akbar Chowk, Peco Road")
+    phones = t.get("phone", "CELL: 042-35176872, 0300-0656620")
+    ntn = t.get("ntn", "NTN: 6603558-6")
 
     lines: list[bytes] = [INIT, LINE_HEIGHT]
 
-    # Header
+    # --- Header ---
     lines.append(ALIGN_CENTER)
-    lines.append(BOLD_ON)
-    lines.append(company.encode("utf-8") + b"\n")
-    if address:
-        lines.append(address.encode("utf-8") + b"\n")
-    if receipt_id:
-        lines.append(f"Receipt: {receipt_id}\n".encode("utf-8"))
-    lines.append(BOLD_OFF)
-    lines.append(ALIGN_LEFT)
-    lines.append(b"\n")
+    lines.append(DOUBLE_SIZE_ON + BOLD_ON)
+    lines.append(f"{company}\n".encode("cp437", errors="replace"))
+    lines.append(NORMAL_SIZE + BOLD_OFF)
 
-    # Items
-    for it in tx.items:
-        unit = money(it.line_total() / it.qty) if it.qty else money(it.qty)
-        # Name + qty on left, price on right, via spaces to fill line width.
-        left = f"{it.name} ({it.qty})"
-        right = f"{unit} x {it.qty}"
-        # Truncate ``left`` if it would overflow LINE_WIDTH. Clamp the slice
-        # length at 0 so a pathologically long ``right`` can't make it go
-        # negative (which would slice from the END of the string via Python's
-        # negative-index wraparound).
-        if len(left) + len(right) > LINE_WIDTH:
-            left = left[: max(LINE_WIDTH - len(right), 0)]
-        gap = LINE_WIDTH - len(left) - len(right)
-        if gap < 1:
-            gap = 1
-        lines.append(f"{left}{' ' * gap}{right}\n".encode("utf-8"))
+    if address:
+        lines.append(f"{address}\n".encode("cp437", errors="replace"))
+    if phones:
+        lines.append(f"{phones}\n".encode("cp437", errors="replace"))
+    if ntn:
+        lines.append(f"{ntn}\n".encode("cp437", errors="replace"))
+
+    lines.append(b"=" * LINE_WIDTH + b"\n")
+
+    # Inverted Title Banner
+    lines.append(INVERT_ON + BOLD_ON)
+    banner = " CASH SALE INVOICE "
+    lines.append(f"{banner.center(LINE_WIDTH)}\n".encode("cp437", errors="replace"))
+    lines.append(INVERT_OFF + BOLD_OFF)
 
     lines.append(b"-" * LINE_WIDTH + b"\n")
+    lines.append(ALIGN_LEFT)
 
-    # Summary
-    def _row(label: str, value: str) -> bytes:
+    # Info meta section
+    date_str = t.get("date_str", "2026-08-22 14:00")
+    rec_num = receipt_id or t.get("invoice_num", "446277")
+    lines.append(f"Invoice #: {rec_num:<14} Date: {date_str}\n".encode("cp437", errors="replace"))
+    if t.get("vehicle") or t.get("plate"):
+        v_info = f"{t.get('vehicle', '')} ({t.get('plate', '')})".strip()
+        lines.append(f"Vehicle:   {v_info}\n".encode("cp437", errors="replace"))
+    if t.get("reading"):
+        lines.append(f"Reading #: {t.get('reading')}\n".encode("cp437", errors="replace"))
+
+    lines.append(b"=" * LINE_WIDTH + b"\n")
+
+    # --- Table Header ---
+    lines.append(BOLD_ON)
+    lines.append(f"{'Item Name':<42}\n".encode("cp437", errors="replace"))
+    lines.append(f"  {'Qty':>6}  {'Price':>8}  {'GST %':>8}  {'Amount':>10}\n".encode("cp437", errors="replace"))
+    lines.append(BOLD_OFF)
+    lines.append(b"-" * LINE_WIDTH + b"\n")
+
+    # --- Table Rows ---
+    for it in tx.items:
+        # Item name line
+        lines.append(BOLD_ON)
+        lines.append(f"{it.name[:42]:<42}\n".encode("cp437", errors="replace"))
+        lines.append(BOLD_OFF)
+        # Detail row: Qty, Price, GST Rate, Amount
+        price_str = f"{it.price:.2f}"
+        qty_str = f"{it.qty:g}"
+        gst_str = f"{it.tax_rate * 100:.0f}%" if hasattr(it, "tax_rate") else "18%"
+        amt_str = f"{it.line_total():.2f}"
+        lines.append(f"  {qty_str:>6}  {price_str:>8}  {gst_str:>8}  {amt_str:>10}\n".encode("cp437", errors="replace"))
+
+    lines.append(b"=" * LINE_WIDTH + b"\n")
+
+    # --- Totals Section ---
+    def _tot_row(label: str, value: str, is_bold: bool = False, invert: bool = False) -> bytes:
         gap = LINE_WIDTH - len(label) - len(value)
         if gap < 1:
             gap = 1
-        return f"{label}{' ' * gap}{value}\n".encode("utf-8")
+        line_str = f"{label}{' ' * gap}{value}\n"
+        b_data = line_str.encode("cp437", errors="replace")
+        prefix = b""
+        suffix = b""
+        if is_bold:
+            prefix += BOLD_ON
+            suffix += BOLD_OFF
+        if invert:
+            prefix += INVERT_ON
+            suffix += INVERT_OFF
+        return prefix + b_data + suffix
 
-    lines.append(_row("SUBTOTAL", f"{tx.currency} {tx.subtotal()}"))
+    lines.append(_tot_row("Gross Total:", f"{tx.subtotal():.2f}"))
+    if tx.tax_total():
+        lines.append(_tot_row("Total GST (18%):", f"{tx.tax_total():.2f}"))
     if tx.discount:
-        lines.append(_row("DISCOUNT", f"-{tx.currency} {money(tx.discount)}"))
-    lines.append(_row("TAX", f"{tx.currency} {tx.tax_total()}"))
-    lines.append(BOLD_ON)
-    lines.append(_row("TOTAL", f"{tx.currency} {tx.total()}"))
-    lines.append(BOLD_OFF)
-    lines.append(b"\n")
+        lines.append(_tot_row("Discount:", f"-{tx.discount:.2f}"))
+    lines.append(_tot_row("FBR POS Fee:", "1.00"))
 
-    if tx.notes:
-        lines.append(f"  {tx.notes}\n\n".encode("utf-8"))
+    lines.append(b"-" * LINE_WIDTH + b"\n")
+    lines.append(_tot_row("Net Payable:", f"{tx.currency} {tx.total():.2f}", is_bold=True, invert=True))
+    lines.append(b"=" * LINE_WIDTH + b"\n")
 
-    # Footer
-    footer = t.get("footer", "Thank you for your business.")
+    # --- QR Code & Footer ---
     lines.append(ALIGN_CENTER)
-    lines.append(f"{footer}\n".encode("utf-8"))
+    qr_payload = t.get("qr_payload") or f"INV:{rec_num}|TOTAL:{tx.total()}|FBR:154588F"
+    lines.append(qr_code_bytes(qr_payload))
+
+    footer = t.get("footer", "PLEASE VISIT AGAIN / YOUR FIRST CHOICE TO BUY. THANKS")
+    lines.append(f"{footer}\n".encode("cp437", errors="replace"))
+    lines.append(BOLD_ON)
+    lines.append(b"SOFTWARE DEVELOPED BY - SOFTHIVE\n")
+    lines.append(b"bizcare.pk | 03270708566\n")
+    lines.append(BOLD_OFF)
 
     # Feed + cut
     lines.append(FEED + b"\x05")  # 5 blank lines
@@ -278,8 +361,7 @@ def print_to_winspool(
     import win32print  # type: ignore
 
     data = build_receipt(tx, receipt_id or "", template)
-    attrs = {"pDatatype": "RAW", "pPrintProcessor": "winprint"}
-    h = win32print.OpenPrinter(printer_name, attrs)
+    h = win32print.OpenPrinter(printer_name)
     try:
         win32print.StartDocPrinter(h, 1, ("receipt", None, "RAW"))
         win32print.StartPagePrinter(h)

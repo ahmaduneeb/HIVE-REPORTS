@@ -1,6 +1,6 @@
 # HIVE-REPORTS
 
-Receipt and report generator. CLI + REST + folder-watch. One default template, one PDF renderer. No GUI.
+Receipt and report generator. CLI + GUI + REST + folder-watch. PDF, PNG, JSON, and advanced ESC/POS thermal output.
 
 ## Install
 
@@ -8,7 +8,22 @@ Receipt and report generator. CLI + REST + folder-watch. One default template, o
 pip install -e .
 # for PNG export:
 pip install -e ".[png]"
+# for Windows printer driver support (winspool):
+pip install -e ".[windows_printer]"
 ```
+
+## GUI Console
+
+Launch the desktop GUI to pick printers, trigger test prints, or run software background actions:
+
+- **Double-click `run_gui.bat`** on Windows (launches in background without leaving an open CMD window).
+- Or run `receipt-gui` / `python -m hive_reports.gui` in your terminal.
+
+Features:
+- **Printer Selector**: Dropdown listing installed Windows printers (e.g. `Black Copper BC-85AC`) and default system printer, with optional network (`192.168.x.x:9100`) or serial (`COM3`) host target inputs.
+- **1-Click Test Print**: Generates an in-memory sample transaction and sends native ESC/POS thermal bytes directly to the printer.
+- **Software Runner**: Dropdown to launch PDF/PNG/JSON/Thermal generation, start REST server, run file watcher, or run self-check demo.
+- **Live Log**: Scrollable text panel streaming stdout/stderr outputs and process status in real-time.
 
 ## Quick start
 
@@ -31,13 +46,20 @@ receipt-gen watch
 
 ## Thermal receipt printing
 
-Generate ESC/POS byte streams for 80mm thermal printers.
+Generates rich 80mm & 58mm POS thermal invoices with native ESC/POS commands:
+- Large centered store headers & sub-headers (`MAKKI OIL STORE` style).
+- Inverted highlight title banners (`CASH SALE INVOICE`, `NET PAYABLE`).
+- Structured itemized tables with wrapped item names, `Qty`, `Price`, `GST %`, and line `Amount` alignment.
+- Hardware QR code generation (`GS ( k`) for FBR POS verification / invoice lookup.
 
 ```bash
-# Write raw ESC/POS bytes to a file (then feed to a printer driver)
+# Write raw ESC/POS bytes to a file
 receipt-gen generate -i sample.json -o receipt.txt -f thermal
 
-# Send directly to a network printer on port 9100 (raw/print-data mode)
+# Send directly to a Windows printer driver (e.g. Black Copper BC-85AC)
+receipt-gen print -i sample.json --printer-name "Black Copper BC-85AC"
+
+# Send directly to a network printer on port 9100
 receipt-gen print -i sample.json --host 192.168.1.100 --port 9100
 
 # Watch folder and emit thermal bytes instead of PDFs
